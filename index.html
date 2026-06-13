@@ -219,6 +219,17 @@ function addBubble(text, type) {
   b.textContent = text;
   log.appendChild(b);
   log.scrollTop = log.scrollHeight;
+  return b;
+}
+
+async function checkWordExists(word) {
+  try {
+    const res = await fetch(`https://jisho.org/api/v1/search/words?keyword=${encodeURIComponent(word)}`);
+    const json = await res.json();
+    return json.data && json.data.length > 0;
+  } catch {
+    return true;
+  }
 }
 
 function updateUsedWords() {
@@ -283,7 +294,7 @@ function aiTurn(requiredFirst) {
   }, 600);
 }
 
-function playerTurn(word) {
+async function playerTurn(word) {
   word = word.trim();
   if (!isHiragana(word)) {
     addBubble("ひらがなで入力してください！", "sys"); return;
@@ -294,15 +305,26 @@ function playerTurn(word) {
   if (usedWords.has(word)) {
     addBubble(`「${word}」はもう使われています！`, "sys"); return;
   }
+
   clearInterval(timerInterval);
+  input.disabled = true;
+  submitBtn.disabled = true;
+  input.value = "";
+
+  const checking = addBubble("🔍 調べています...", "sys");
+  const exists = await checkWordExists(word);
+  checking.remove();
+
+  if (!exists) {
+    endGame(`「${word}」は辞書に載っていない言葉です。負けです！`);
+    return;
+  }
+
   usedWords.add(word);
   score++;
   scoreEl.textContent = score;
   addBubble(`🙋 ${word}`, "user");
   updateUsedWords();
-  input.value = "";
-  input.disabled = true;
-  submitBtn.disabled = true;
 
   if (lastChar(word) === "ん") {
     endGame("「ん」で終わってしまいました。負けです！");
