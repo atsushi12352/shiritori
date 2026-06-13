@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>しりとり vs AI</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 { font-size: 2rem; margin: 20px 0 4px; color: #e94560; }
+    .subtitle { font-size: 0.85rem; color: #888; margin-bottom: 20px; }
+
+    #game-area {
+      width: 100%;
+      max-width: 480px;
+    }
+
+    #chat-log {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 16px;
+      height: 340px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 18px;
+      font-size: 1rem;
+      line-height: 1.4;
+      animation: pop 0.2s ease;
+    }
+    @keyframes pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .bubble.ai   { background: #0f3460; align-self: flex-start; border-bottom-left-radius: 4px; }
+    .bubble.user { background: #e94560; align-self: flex-end;   border-bottom-right-radius: 4px; }
+    .bubble.sys  { background: #333; align-self: center; font-size: 0.8rem; color: #aaa; border-radius: 8px; }
+
+    #status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 12px 0 8px;
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+    #timer-bar {
+      width: 100%;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    #timer-fill {
+      height: 100%;
+      background: #e94560;
+      transition: width 1s linear;
+      border-radius: 3px;
+    }
+
+    #input-row {
+      display: flex;
+      gap: 8px;
+    }
+    #word-input {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 24px;
+      border: 2px solid #333;
+      background: #16213e;
+      color: #eee;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #word-input:focus { border-color: #e94560; }
+    #word-input:disabled { opacity: 0.4; }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 24px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: bold;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button:active { transform: scale(0.96); }
+    #submit-btn { background: #e94560; color: #fff; }
+    #submit-btn:disabled { opacity: 0.4; cursor: default; }
+    #restart-btn { background: #0f3460; color: #fff; display: none; }
+
+    #used-words {
+      margin-top: 14px;
+      font-size: 0.75rem;
+      color: #555;
+      line-height: 1.8;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>しりとり</h1>
+  <p class="subtitle">AIと対決！制限時間10秒。「ん」で終わったら負け。</p>
+
+  <div id="game-area">
+    <div id="chat-log"></div>
+    <div id="status-bar">
+      <span id="current-char">最初の文字: <strong id="cur">—</strong></span>
+      <span id="score-display">スコア: <strong id="score">0</strong></span>
+    </div>
+    <div id="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div id="input-row">
+      <input id="word-input" type="text" placeholder="ひらがなで入力..." autocomplete="off" />
+      <button id="submit-btn">送る</button>
+      <button id="restart-btn">もう一度</button>
+    </div>
+    <div id="used-words"></div>
+  </div>
+
+<script>
+// ---- AI vocabulary (hiragana) ----
+const AI_WORDS = [
+  "あいす","あおい","あかい","あかね","あきら","あさひ","あじさい","あたま",
+  "いぬ","いのしし","いちご","いけ","いしかわ","いたち",
+  "うみ","うさぎ","うぐいす","うえの","うきわ",
+  "えのき","えび","えんぴつ","えがお",
+  "おにぎり","おか","おもちゃ","おさる","おばけ",
+  "かに","かえる","かがみ","かさ","かぶと","かわ","かめ","からす","かりん",
+  "きつね","きのこ","きりん","きゅうり","きく",
+  "くじら","くも","くすのき","くるま","くじ",
+  "けむし","けしごむ","けしき",
+  "こうもり","こあら","こおり","こうべ","こたつ","こどもこども","こうえん",
+  "さかな","さくら","さる","さんま","さぎ","さぼてん",
+  "しか","しんかんせん","しおり","しろ","しまうま",
+  "すいか","すずめ","すもも","すずき","すいせん",
+  "せみ","せかい","せっけん",
+  "そら","そうじ","そば","そうめん",
+  "たぬき","たこ","たいよう","たまご","たけのこ","たいこ",
+  "ちょうちょ","ちかてつ","ちきゅう","ちず",
+  "つき","つる","つばさ","つばめ","つくし","つち",
+  "てつ","てんとうむし","てんき","ておくり",
+  "とら","とんぼ","とびうお","とけい","とかげ",
+  "なまけもの","なす","なずな","なみ","なのはな",
+  "にわとり","にじ","にっき","にんじん",
+  "ぬいぐるみ","ぬまがえる",
+  "ねこ","ねずみ","ねじ","ねぎ",
+  "のら","のうさぎ","のはら",
+  "はな","はち","はと","はりねずみ","はくちょう","はまべ",
+  "ひまわり","ひつじ","ひかり","ひので",
+  "ふくろう","ふじさん","ふうせん","ふね",
+  "へび","へいわ","へや",
+  "ほし","ほたる","ほうき","ほんだな",
+  "まつ","まり","まいたけ","まぐろ","まめ",
+  "みかん","みず","みずうみ","みつばち","みち",
+  "むし","むらさき","むれ",
+  "めだか","めがね","めろん",
+  "もみじ","もぐら","もも","もり",
+  "やぎ","やまね","やまびこ","やかん","やし",
+  "ゆき","ゆめ","ゆりかご","ゆず",
+  "よる","よしのり","よもぎ","よだか",
+  "らくだ","らいちょう","らっきょ",
+  "りす","りんご","りゅう","りんどう",
+  "るびい","るすばん",
+  "れもん","れんげ","れいぞうこ",
+  "ろばた","ろうそく","ろっく",
+  "わし","わにわに","わらび","わかめ","わかさぎ",
+];
+
+// small to big kana map for last-char normalization
+const SMALL_TO_BIG = {
+  "ぁ":"あ","ぃ":"い","ぅ":"う","ぇ":"え","ぉ":"お",
+  "っ":"つ","ゃ":"や","ゅ":"ゆ","ょ":"よ","ゎ":"わ",
+  "ァ":"ア","ィ":"イ","ゥ":"ウ","ェ":"エ","ォ":"オ",
+  "ッ":"ツ","ャ":"ヤ","ュ":"ユ","ョ":"ヨ","ヮ":"ワ",
+};
+
+function lastChar(word) {
+  let c = word[word.length - 1];
+  return SMALL_TO_BIG[c] || c;
+}
+
+function isHiragana(str) {
+  return /^[ぁ-ん]+$/.test(str);
+}
+
+// ---- Game state ----
+let usedWords = new Set();
+let currentChar = "";
+let score = 0;
+let timerInterval = null;
+let timeLeft = 10;
+let gameOver = false;
+
+const log       = document.getElementById("chat-log");
+const input     = document.getElementById("word-input");
+const submitBtn = document.getElementById("submit-btn");
+const restartBtn= document.getElementById("restart-btn");
+const curEl     = document.getElementById("cur");
+const scoreEl   = document.getElementById("score");
+const timerFill = document.getElementById("timer-fill");
+
+function addBubble(text, type) {
+  const b = document.createElement("div");
+  b.className = `bubble ${type}`;
+  b.textContent = text;
+  log.appendChild(b);
+  log.scrollTop = log.scrollHeight;
+}
+
+function updateUsedWords() {
+  const el = document.getElementById("used-words");
+  el.textContent = "使用済み: " + [...usedWords].join("、");
+}
+
+function startTimer() {
+  clearInterval(timerInterval);
+  timeLeft = 10;
+  timerFill.style.transition = "none";
+  timerFill.style.width = "100%";
+  requestAnimationFrame(() => {
+    timerFill.style.transition = "width 1s linear";
+    timerFill.style.width = ((timeLeft - 1) / 10 * 100) + "%";
+    timerInterval = setInterval(() => {
+      timeLeft--;
+      timerFill.style.width = (timeLeft / 10 * 100) + "%";
+      if (timeLeft <= 0) {
+        clearInterval(timerInterval);
+        endGame("⏰ 時間切れ！負けです。");
+      }
+    }, 1000);
+  });
+}
+
+function endGame(msg) {
+  gameOver = true;
+  clearInterval(timerInterval);
+  input.disabled = true;
+  submitBtn.disabled = true;
+  restartBtn.style.display = "inline-block";
+  addBubble(msg, "sys");
+  addBubble(`最終スコア: ${score}点`, "sys");
+}
+
+function aiTurn(requiredFirst) {
+  const candidates = AI_WORDS.filter(w =>
+    w[0] === requiredFirst && !usedWords.has(w)
+  );
+  if (candidates.length === 0) {
+    endGame("🤖 AIは言葉が思いつきません。あなたの勝ち！");
+    return;
+  }
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+  usedWords.add(chosen);
+  currentChar = lastChar(chosen);
+  curEl.textContent = currentChar;
+  score++;
+  scoreEl.textContent = score;
+
+  setTimeout(() => {
+    addBubble(`🤖 ${chosen}`, "ai");
+    updateUsedWords();
+    if (lastChar(chosen) === "ん") {
+      endGame("🤖 AIが「ん」で終わる言葉を言ってしまった。あなたの勝ち！");
+      return;
+    }
+    startTimer();
+    input.disabled = false;
+    input.focus();
+  }, 600);
+}
+
+function playerTurn(word) {
+  word = word.trim();
+  if (!isHiragana(word)) {
+    addBubble("ひらがなで入力してください！", "sys"); return;
+  }
+  if (word[0] !== currentChar) {
+    addBubble(`「${currentChar}」から始まる言葉を入力してください！`, "sys"); return;
+  }
+  if (usedWords.has(word)) {
+    addBubble(`「${word}」はもう使われています！`, "sys"); return;
+  }
+  clearInterval(timerInterval);
+  usedWords.add(word);
+  score++;
+  scoreEl.textContent = score;
+  addBubble(`🙋 ${word}`, "user");
+  updateUsedWords();
+  input.value = "";
+  input.disabled = true;
+  submitBtn.disabled = true;
+
+  if (lastChar(word) === "ん") {
+    endGame("「ん」で終わってしまいました。負けです！");
+    return;
+  }
+  currentChar = lastChar(word);
+  curEl.textContent = currentChar;
+  addBubble("🤖 考え中...", "ai");
+  setTimeout(() => {
+    log.lastElementChild.remove();
+    aiTurn(currentChar);
+    submitBtn.disabled = false;
+  }, 800);
+}
+
+function startGame() {
+  usedWords.clear();
+  score = 0;
+  gameOver = false;
+  scoreEl.textContent = 0;
+  log.innerHTML = "";
+  document.getElementById("used-words").textContent = "";
+  input.disabled = false;
+  input.value = "";
+  submitBtn.disabled = false;
+  restartBtn.style.display = "none";
+  timerFill.style.width = "100%";
+
+  // AI starts first
+  const starters = AI_WORDS.filter(w => w[0] === "あ");
+  const first = starters[Math.floor(Math.random() * starters.length)];
+  usedWords.add(first);
+  currentChar = lastChar(first);
+  curEl.textContent = currentChar;
+  score++;
+  scoreEl.textContent = score;
+
+  addBubble("しりとりをはじめましょう！ひらがなで答えてね。", "sys");
+  addBubble(`🤖 ${first}`, "ai");
+  updateUsedWords();
+  startTimer();
+  input.focus();
+}
+
+submitBtn.addEventListener("click", () => {
+  if (!gameOver && input.value) playerTurn(input.value);
+});
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !gameOver && input.value) playerTurn(input.value);
+});
+restartBtn.addEventListener("click", startGame);
+
+startGame();
+</script>
+</body>
+</html>
